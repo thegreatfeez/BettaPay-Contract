@@ -1,0 +1,11 @@
+[workspace]
+members = ["settlement_contract", "governance_contract"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+publish = false
+
+[workspace.dependencies]
+soroban-sdk = "21.7.7"
