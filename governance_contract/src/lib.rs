@@ -4,6 +4,11 @@ use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short, Address, Env, Symbol,
 };
 
+/// Minimum allowed fee in basis points (0.05%).
+const MIN_FEE_BPS: u32 = 5;
+/// Maximum allowed fee in basis points (50%).
+const MAX_FEE_BPS: u32 = 5_000;
+
 #[derive(Clone)]
 #[contracttype]
 pub struct FeeConfig {
@@ -95,7 +100,11 @@ impl GovernanceContract {
         let admin = read_admin(&env);
         admin.require_auth();
 
-        if config.platform_fee_bps > 10_000 || config.network_fee_bps > 10_000 {
+        if config.platform_fee_bps < MIN_FEE_BPS
+            || config.platform_fee_bps > MAX_FEE_BPS
+            || config.network_fee_bps < MIN_FEE_BPS
+            || config.network_fee_bps > MAX_FEE_BPS
+        {
             panic_with_error!(&env, GovernanceError::InvalidFeeBps);
         }
 
@@ -216,13 +225,39 @@ mod tests {
 
     #[test]
     #[should_panic]
-    fn rejects_invalid_fee_bps() {
+    fn rejects_fee_bps_above_max() {
         let (_env, client, _admin) = setup();
         let cfg = FeeConfig {
-            platform_fee_bps: 20_000,
-            network_fee_bps: 10,
+            platform_fee_bps: 5_001,
+            network_fee_bps: 100,
         };
         client.set_fee_config(&cfg);
+    }
+
+    #[test]
+    #[should_panic]
+    fn rejects_fee_bps_below_min() {
+        let (_env, client, _admin) = setup();
+        let cfg = FeeConfig {
+            platform_fee_bps: 100,
+            network_fee_bps: 4, // below MIN_FEE_BPS
+        };
+        client.set_fee_config(&cfg);
+    }
+
+    #[test]
+    fn accepts_fee_bps_at_boundaries() {
+        let (_env, client, _admin) = setup();
+        // Exactly at minimum
+        client.set_fee_config(&FeeConfig {
+            platform_fee_bps: 5,
+            network_fee_bps: 5,
+        });
+        // Exactly at maximum
+        client.set_fee_config(&FeeConfig {
+            platform_fee_bps: 5_000,
+            network_fee_bps: 5_000,
+        });
     }
 
     #[test]
