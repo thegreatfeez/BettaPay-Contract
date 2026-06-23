@@ -2,6 +2,7 @@
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short, Address, BytesN, Env,
+    Symbol,
 };
 
 const BPS_DENOMINATOR: i128 = 10_000;
@@ -121,6 +122,16 @@ impl SettlementContract {
             .publish((symbol_short!("merchant"), merchant), true);
     }
 
+    /// ## Emitted Event: `settlement_rule_updated`
+    ///
+    /// **Topics**: `(Symbol("settlement_rule_updated"), Address rule_id)`
+    /// - First topic: fixed event-name symbol for filtering by event type
+    /// - Second topic: the merchant address identifying which rule was updated
+    ///
+    /// **Data**: `(Address caller, SettlementRule previous, SettlementRule current)`
+    /// - `caller`: the admin who authorized the rule change
+    /// - `previous`: the rule values before the update (or system defaults on first set)
+    /// - `current`: the new rule values after the update
     pub fn set_settlement_rule(env: Env, merchant: Address, rule: SettlementRule) {
         assert_not_paused(&env);
         let admin = read_admin(&env);
@@ -133,11 +144,24 @@ impl SettlementContract {
             panic_with_error!(&env, SettlementError::InvalidFeeBps);
         }
 
+        let prev = env.storage()
+            .persistent()
+            .get::<_, SettlementRule>(&DataKey::Rule(merchant.clone()))
+            .unwrap_or(SettlementRule {
+                platform_fee_bps: 100,
+                network_fee_bps: 0,
+                settlement_delay_ledger: 0,
+                auto_settle: false,
+            });
+
         env.storage()
             .persistent()
-            .set(&DataKey::Rule(merchant.clone()), &rule.clone());
-        env.events()
-            .publish((symbol_short!("set_rule"), merchant), (rule.platform_fee_bps, rule.network_fee_bps));
+            .set(&DataKey::Rule(merchant.clone()), &rule);
+
+        env.events().publish(
+            (Symbol::new(&env, "settlement_rule_updated"), merchant),
+            (admin, prev, rule),
+        );
     }
 
     pub fn store_payment_reference(env: Env, merchant: Address, reference: BytesN<32>, amount: i128) -> FeeSplit {
@@ -258,6 +282,7 @@ fn calculate_split(amount: i128, rule: &SettlementRule) -> FeeSplit {
 mod tests {
     use super::*;
     use soroban_sdk::testutils::{Address as _, Events};
+    use soroban_sdk::FromVal;
 
     fn setup() -> (Env, SettlementContractClient<'static>, Address, Address) {
         let env = Env::default();
@@ -292,7 +317,7 @@ mod tests {
             auto_settle: true,
         };
 
-        let before = env.events().all().len();
+        let prev_count = env.events().all().len();
         client.set_settlement_rule(&merchant, &rule);
         let got = client
             .get_settlement_rule(&merchant)
@@ -302,7 +327,73 @@ mod tests {
         assert_eq!(got.network_fee_bps, 25);
         assert_eq!(got.settlement_delay_ledger, 42);
         assert!(got.auto_settle);
-        assert!(env.events().all().len() > before);
+
+        let events = env.events().all();
+        assert_eq!(events.len(), prev_count + 1, "exactly one event emitted");
+
+        let (_contract_id, topics, _data) = events.get(prev_count).unwrap();
+
+        // Topic[0] must be the fixed event-name symbol
+        assert_eq!(topics.len(), 2);
+        assert_eq!(
+            Symbol::from_val(&env, &topics.get(0).unwrap()),
+            Symbol::new(&env, "settlement_rule_updated")
+        );
+        // Topic[1] must be the merchant (rule identifier)
+        assert_eq!(
+            Address::from_val(&env, &topics.get(1).unwrap()),
+            merchant
+        );
+    }
+
+    #[test]
+    fn emits_structured_event_when_updating_rule() {
+        let (env, client, _admin, merchant) = setup();
+        client.register_merchant(&merchant);
+
+        let first_rule = SettlementRule {
+            platform_fee_bps: 100,
+            network_fee_bps: 0,
+            settlement_delay_ledger: 10,
+            auto_settle: false,
+        };
+        client.set_settlement_rule(&merchant, &first_rule);
+
+        let second_rule = SettlementRule {
+            platform_fee_bps: 200,
+            network_fee_bps: 50,
+            settlement_delay_ledger: 20,
+            auto_settle: true,
+        };
+
+        let prev_count = env.events().all().len();
+        client.set_settlement_rule(&merchant, &second_rule);
+
+        let events = env.events().all();
+        assert_eq!(events.len(), prev_count + 1, "exactly one event emitted");
+
+        let (_contract_id, topics, _data) = events.get(prev_count).unwrap();
+
+        // Topic[0] must be the fixed event-name symbol
+        assert_eq!(topics.len(), 2);
+        assert_eq!(
+            Symbol::from_val(&env, &topics.get(0).unwrap()),
+            Symbol::new(&env, "settlement_rule_updated")
+        );
+        // Topic[1] must be the merchant
+        assert_eq!(
+            Address::from_val(&env, &topics.get(1).unwrap()),
+            merchant
+        );
+
+        // Verify storage was updated
+        let stored = client
+            .get_settlement_rule(&merchant)
+            .expect("expected settlement rule");
+        assert_eq!(stored.platform_fee_bps, 200);
+        assert_eq!(stored.network_fee_bps, 50);
+        assert_eq!(stored.settlement_delay_ledger, 20);
+        assert!(stored.auto_settle);
     }
 
     #[test]

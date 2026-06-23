@@ -66,7 +66,15 @@
                     },
                     {
                       "key": {
-                        "symbol": "fee_bps"
+                        "symbol": "network_fee_bps"
+                      },
+                      "val": {
+                        "u32": 50
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "platform_fee_bps"
                       },
                       "val": {
                         "u32": 250
@@ -356,21 +364,10 @@
                     },
                     {
                       "key": {
-                        "symbol": "fee_amount"
+                        "symbol": "auto_settle"
                       },
                       "val": {
-                        "i128": {
-                          "hi": 0,
-                          "lo": 500
-                        }
-                      }
-                    },
-                    {
-                      "key": {
-                        "symbol": "fee_bps"
-                      },
-                      "val": {
-                        "u32": 250
+                        "bool": false
                       }
                     },
                     {
@@ -396,8 +393,54 @@
                       "val": {
                         "i128": {
                           "hi": 0,
-                          "lo": 19500
+                          "lo": 19400
                         }
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "network_fee_amount"
+                      },
+                      "val": {
+                        "i128": {
+                          "hi": 0,
+                          "lo": 100
+                        }
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "network_fee_bps"
+                      },
+                      "val": {
+                        "u32": 50
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "platform_fee_amount"
+                      },
+                      "val": {
+                        "i128": {
+                          "hi": 0,
+                          "lo": 500
+                        }
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "platform_fee_bps"
+                      },
+                      "val": {
+                        "u32": 250
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "settlement_delay_ledger"
+                      },
+                      "val": {
+                        "u32": 0
                       }
                     }
                   ]
@@ -456,7 +499,15 @@
                     },
                     {
                       "key": {
-                        "symbol": "fee_bps"
+                        "symbol": "network_fee_bps"
+                      },
+                      "val": {
+                        "u32": 50
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "platform_fee_bps"
                       },
                       "val": {
                         "u32": 250
@@ -700,7 +751,15 @@
                     },
                     {
                       "key": {
-                        "symbol": "fee_bps"
+                        "symbol": "network_fee_bps"
+                      },
+                      "val": {
+                        "u32": 50
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "platform_fee_bps"
                       },
                       "val": {
                         "u32": 250
@@ -732,14 +791,90 @@
           "v0": {
             "topics": [
               {
-                "symbol": "set_rule"
+                "symbol": "settlement_rule_updated"
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
               }
             ],
             "data": {
-              "u32": 250
+              "vec": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                },
+                {
+                  "map": [
+                    {
+                      "key": {
+                        "symbol": "auto_settle"
+                      },
+                      "val": {
+                        "bool": false
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "network_fee_bps"
+                      },
+                      "val": {
+                        "u32": 0
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "platform_fee_bps"
+                      },
+                      "val": {
+                        "u32": 100
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "settlement_delay_ledger"
+                      },
+                      "val": {
+                        "u32": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "map": [
+                    {
+                      "key": {
+                        "symbol": "auto_settle"
+                      },
+                      "val": {
+                        "bool": false
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "network_fee_bps"
+                      },
+                      "val": {
+                        "u32": 50
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "platform_fee_bps"
+                      },
+                      "val": {
+                        "u32": 250
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "settlement_delay_ledger"
+                      },
+                      "val": {
+                        "u32": 0
+                      }
+                    }
+                  ]
+                }
+              ]
             }
           }
         }
@@ -861,7 +996,13 @@
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 19500
+                    "lo": 100
+                  }
+                },
+                {
+                  "i128": {
+                    "hi": 0,
+                    "lo": 19400
                   }
                 }
               ]
@@ -890,25 +1031,6 @@
               "map": [
                 {
                   "key": {
-                    "symbol": "fee_amount"
-                  },
-                  "val": {
-                    "i128": {
-                      "hi": 0,
-                      "lo": 500
-                    }
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "fee_bps"
-                  },
-                  "val": {
-                    "u32": 250
-                  }
-                },
-                {
-                  "key": {
                     "symbol": "gross_amount"
                   },
                   "val": {
@@ -925,7 +1047,29 @@
                   "val": {
                     "i128": {
                       "hi": 0,
-                      "lo": 19500
+                      "lo": 19400
+                    }
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "network_fee_amount"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 100
+                    }
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "platform_fee_amount"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 500
                     }
                   }
                 }
@@ -992,21 +1136,10 @@
                 },
                 {
                   "key": {
-                    "symbol": "fee_amount"
+                    "symbol": "auto_settle"
                   },
                   "val": {
-                    "i128": {
-                      "hi": 0,
-                      "lo": 500
-                    }
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "fee_bps"
-                  },
-                  "val": {
-                    "u32": 250
+                    "bool": false
                   }
                 },
                 {
@@ -1032,8 +1165,54 @@
                   "val": {
                     "i128": {
                       "hi": 0,
-                      "lo": 19500
+                      "lo": 19400
                     }
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "network_fee_amount"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 100
+                    }
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "network_fee_bps"
+                  },
+                  "val": {
+                    "u32": 50
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "platform_fee_amount"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 500
+                    }
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "platform_fee_bps"
+                  },
+                  "val": {
+                    "u32": 250
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "settlement_delay_ledger"
+                  },
+                  "val": {
+                    "u32": 0
                   }
                 }
               ]
