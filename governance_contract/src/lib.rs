@@ -223,6 +223,7 @@ impl GovernanceContract {
 }
 
 fn read_admin(env: &Env) -> Address {
+    env.storage().instance().extend_ttl(50_000, 100_000);
     env.storage()
         .instance()
         .get(&DataKey::Admin)
@@ -385,7 +386,7 @@ mod tests {
 
     #[test]
     #[should_panic]
-    fn rejects_reinitialization() {
+    fn rejects_double_initialization() {
         let (env, client, admin) = setup();
         client.init(&admin);
         let _ = env;

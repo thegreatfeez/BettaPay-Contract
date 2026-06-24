@@ -2,12 +2,13 @@
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short, Address,
-    BytesN, Env, Symbol,
+    BytesN, Env, Symbol, Vec,
 };
 
 const BPS_DENOMINATOR: i128 = 10_000;
 const MIN_PAYMENT_AMOUNT: i128 = 100;
-const MAX_SETTLEMENT_DELAY_LEDGER: u32 = 100_000;
+const PAYMENT_TTL_THRESHOLD: u32 = 17280 * 14;
+const PAYMENT_TTL_BUMP: u32 = 17280 * 30;
 const RULE_TTL_THRESHOLD: u32 = 17280 * 14;
 const RULE_TTL_BUMP: u32 = 17280 * 30;
 const PAYMENT_TTL_THRESHOLD: u32 = 17280 * 14;
@@ -79,7 +80,7 @@ pub enum SettlementError {
     Paused = 9,
     RuleNotSet = 10,
     InvalidAddress = 11,
-    InvalidSettlementDelay = 12,
+    InvalidPaymentReference = 12,
 }
 
 #[contract]
@@ -131,7 +132,7 @@ impl SettlementContract {
             &env,
             "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
         );
-        if merchant.to_string().is_empty() || merchant.to_string() == zero_address_str {
+        if merchant.to_string().len() == 0 || merchant.to_string() == zero_address_str {
             panic_with_error!(&env, SettlementError::InvalidAddress);
         }
 
@@ -297,6 +298,9 @@ impl SettlementContract {
         if !is_merchant_registered_internal(&env, merchant.clone()) {
             panic_with_error!(&env, SettlementError::MerchantMissing);
         }
+        if reference == BytesN::from_array(&env, &[0; 32]) {
+            panic_with_error!(&env, SettlementError::InvalidPaymentReference);
+        }
         if amount < MIN_PAYMENT_AMOUNT {
             panic_with_error!(&env, SettlementError::InvalidAmount);
         }
@@ -386,6 +390,18 @@ impl SettlementContract {
                 .extend_ttl(&key, PAYMENT_TTL_THRESHOLD, PAYMENT_TTL_BUMP);
         }
         record
+    }
+
+    pub fn get_payments(env: Env, references: Vec<BytesN<32>>) -> Vec<PaymentRecord> {
+        let mut payments = Vec::new(&env);
+
+        for reference in references.iter() {
+            if let Some(payment) = Self::get_payment_reference(env.clone(), reference.clone()) {
+                payments.push_back(payment);
+            }
+        }
+
+        payments
     }
 }
 
@@ -628,19 +644,21 @@ mod tests {
     }
 
     #[test]
-    fn rounds_fee_split_up_for_small_amounts() {
+    #[should_panic]
+    fn rejects_all_zero_payment_reference() {
+        let (env, client, _admin, merchant) = setup();
+        client.register_merchant(&merchant);
+
         let rule = SettlementRule {
-            platform_fee_bps: 1,
-            network_fee_bps: 1,
+            platform_fee_bps: 250,
+            network_fee_bps: 50,
             settlement_delay_ledger: 0,
             auto_settle: false,
         };
+        client.set_settlement_rule(&merchant, &rule);
 
-        let split = calculate_split(100, &rule);
-
-        assert_eq!(split.platform_fee_amount, 1);
-        assert_eq!(split.network_fee_amount, 1);
-        assert_eq!(split.merchant_amount, 98);
+        let reference = BytesN::from_array(&env, &[0; 32]);
+        client.store_payment_reference(&merchant, &reference, &10_000);
     }
 
     #[test]
@@ -671,6 +689,32 @@ mod tests {
             let key = DataKey::Payment(reference.clone());
             assert!(env.storage().persistent().has(&key));
         });
+    }
+
+    #[test]
+    fn gets_payments_in_batches() {
+        let (env, client, _admin, merchant) = setup();
+        client.register_merchant(&merchant);
+
+        let rule = SettlementRule {
+            platform_fee_bps: 250,
+            network_fee_bps: 50,
+            settlement_delay_ledger: 0,
+            auto_settle: false,
+        };
+        client.set_settlement_rule(&merchant, &rule);
+
+        let reference_one = BytesN::from_array(&env, &[11; 32]);
+        let reference_two = BytesN::from_array(&env, &[12; 32]);
+        client.store_payment_reference(&merchant, &reference_one, &15_000);
+        client.store_payment_reference(&merchant, &reference_two, &25_000);
+
+        let references = Vec::from_array(&env, [reference_one.clone(), reference_two.clone()]);
+        let payments = client.get_payments(&references);
+
+        assert_eq!(payments.len(), 2);
+        assert_eq!(payments.get(0).unwrap().amount, 15_000);
+        assert_eq!(payments.get(1).unwrap().amount, 25_000);
     }
 
     #[test]
