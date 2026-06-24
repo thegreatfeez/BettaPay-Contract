@@ -54,9 +54,7 @@ Handles the on-chain settlement layer:
 - `calculate_fee_split(merchant, amount)` — read-only fee split calculation
 - `get_payment_reference(reference)` — fetch stored payment record
 - `is_merchant_registered(merchant)` — boolean check
-
-### governance_contract
-
+"all done"
 Handles protocol-level configuration:
 - `init(admin)` — one-time initialization
 - `set_fee_config(config)` — admin sets platform + network fee BPS
