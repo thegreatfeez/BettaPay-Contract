@@ -7,6 +7,7 @@ use soroban_sdk::{
 
 const BPS_DENOMINATOR: i128 = 10_000;
 const MIN_PAYMENT_AMOUNT: i128 = 100;
+const MAX_SETTLEMENT_DELAY_LEDGER: u32 = 100_000;
 const RULE_TTL_THRESHOLD: u32 = 17280 * 14;
 const RULE_TTL_BUMP: u32 = 17280 * 30;
 const PAYMENT_TTL_THRESHOLD: u32 = 17280 * 14;
@@ -78,6 +79,7 @@ pub enum SettlementError {
     Paused = 9,
     RuleNotSet = 10,
     InvalidAddress = 11,
+    InvalidSettlementDelay = 12,
 }
 
 #[contract]
@@ -190,6 +192,9 @@ impl SettlementContract {
         {
             panic_with_error!(&env, SettlementError::InvalidFeeBps);
         }
+        if rule.settlement_delay_ledger > MAX_SETTLEMENT_DELAY_LEDGER {
+            panic_with_error!(&env, SettlementError::InvalidSettlementDelay);
+        }
 
         let prev = env
             .storage()
@@ -255,6 +260,9 @@ impl SettlementContract {
             || new_rule.network_fee_bps > BPS_DENOMINATOR as u32
         {
             panic_with_error!(&env, SettlementError::InvalidFeeBps);
+        }
+        if new_rule.settlement_delay_ledger > MAX_SETTLEMENT_DELAY_LEDGER {
+            panic_with_error!(&env, SettlementError::InvalidSettlementDelay);
         }
 
         let prev = env
@@ -1079,5 +1087,160 @@ mod tests {
             auto_settle: false,
         };
         client.set_default_rule(&bad_rule);
+    }
+
+    #[test]
+    fn accepts_valid_settlement_delay_zero() {
+        let (_env, client, _admin, merchant) = setup();
+        client.register_merchant(&merchant);
+
+        let rule = SettlementRule {
+            platform_fee_bps: 100,
+            network_fee_bps: 0,
+            settlement_delay_ledger: 0,
+            auto_settle: false,
+        };
+
+        client.set_settlement_rule(&merchant, &rule);
+        let stored = client
+            .get_settlement_rule(&merchant)
+            .expect("expected settlement rule");
+        assert_eq!(stored.settlement_delay_ledger, 0);
+    }
+
+    #[test]
+    fn accepts_valid_settlement_delay_one() {
+        let (_env, client, _admin, merchant) = setup();
+        client.register_merchant(&merchant);
+
+        let rule = SettlementRule {
+            platform_fee_bps: 100,
+            network_fee_bps: 0,
+            settlement_delay_ledger: 1,
+            auto_settle: false,
+        };
+
+        client.set_settlement_rule(&merchant, &rule);
+        let stored = client
+            .get_settlement_rule(&merchant)
+            .expect("expected settlement rule");
+        assert_eq!(stored.settlement_delay_ledger, 1);
+    }
+
+    #[test]
+    fn accepts_settlement_delay_at_maximum_boundary() {
+        let (_env, client, _admin, merchant) = setup();
+        client.register_merchant(&merchant);
+
+        let rule = SettlementRule {
+            platform_fee_bps: 100,
+            network_fee_bps: 0,
+            settlement_delay_ledger: 100_000,
+            auto_settle: false,
+        };
+
+        client.set_settlement_rule(&merchant, &rule);
+        let stored = client
+            .get_settlement_rule(&merchant)
+            .expect("expected settlement rule");
+        assert_eq!(stored.settlement_delay_ledger, 100_000);
+    }
+
+    #[test]
+    #[should_panic]
+    fn rejects_settlement_delay_above_maximum() {
+        let (_env, client, _admin, merchant) = setup();
+        client.register_merchant(&merchant);
+
+        let rule = SettlementRule {
+            platform_fee_bps: 100,
+            network_fee_bps: 0,
+            settlement_delay_ledger: 100_001,
+            auto_settle: false,
+        };
+
+        client.set_settlement_rule(&merchant, &rule);
+    }
+
+    #[test]
+    #[should_panic]
+    fn rejects_settlement_delay_at_u32_max() {
+        let (_env, client, _admin, merchant) = setup();
+        client.register_merchant(&merchant);
+
+        let rule = SettlementRule {
+            platform_fee_bps: 100,
+            network_fee_bps: 0,
+            settlement_delay_ledger: u32::MAX,
+            auto_settle: false,
+        };
+
+        client.set_settlement_rule(&merchant, &rule);
+    }
+
+    #[test]
+    fn accepts_default_rule_with_valid_settlement_delay() {
+        let (_env, client, _admin, _merchant) = setup();
+
+        let rule = SettlementRule {
+            platform_fee_bps: 200,
+            network_fee_bps: 50,
+            settlement_delay_ledger: 50_000,
+            auto_settle: true,
+        };
+
+        client.set_default_rule(&rule);
+        let stored = client
+            .get_default_rule()
+            .expect("expected default rule");
+        assert_eq!(stored.settlement_delay_ledger, 50_000);
+    }
+
+    #[test]
+    fn accepts_default_rule_at_settlement_delay_maximum() {
+        let (_env, client, _admin, _merchant) = setup();
+
+        let rule = SettlementRule {
+            platform_fee_bps: 200,
+            network_fee_bps: 50,
+            settlement_delay_ledger: 100_000,
+            auto_settle: true,
+        };
+
+        client.set_default_rule(&rule);
+        let stored = client
+            .get_default_rule()
+            .expect("expected default rule");
+        assert_eq!(stored.settlement_delay_ledger, 100_000);
+    }
+
+    #[test]
+    #[should_panic]
+    fn rejects_default_rule_with_settlement_delay_above_maximum() {
+        let (_env, client, _admin, _merchant) = setup();
+
+        let rule = SettlementRule {
+            platform_fee_bps: 200,
+            network_fee_bps: 50,
+            settlement_delay_ledger: 100_001,
+            auto_settle: true,
+        };
+
+        client.set_default_rule(&rule);
+    }
+
+    #[test]
+    #[should_panic]
+    fn rejects_default_rule_with_settlement_delay_at_u32_max() {
+        let (_env, client, _admin, _merchant) = setup();
+
+        let rule = SettlementRule {
+            platform_fee_bps: 200,
+            network_fee_bps: 50,
+            settlement_delay_ledger: u32::MAX,
+            auto_settle: true,
+        };
+
+        client.set_default_rule(&rule);
     }
 }
