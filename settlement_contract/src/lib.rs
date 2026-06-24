@@ -293,10 +293,31 @@ impl SettlementContract {
         };
 
         env.storage().persistent().set(&payment_key, &record);
-        env.events()
-            .publish((symbol_short!("payment"), merchant.clone()), reference);
+
+        /// ## Emitted Event: `payment_stored`
+        ///
+        /// **Topics**: `(Symbol("payment_stored"), Address merchant)`
+        /// - First topic: fixed event-name symbol for filtering by event type
+        /// - Second topic: the merchant address that stored the payment
+        ///
+        /// **Data**: `(BytesN<32> reference, PaymentRecord record)`
+        /// - `reference`: the unique payment reference identifier
+        /// - `record`: the full payment record including amounts, fees, and settlement info
         env.events().publish(
-            (symbol_short!("split"), merchant),
+            (Symbol::new(&env, "payment_stored"), merchant.clone()),
+            (reference.clone(), record),
+        );
+
+        /// ## Emitted Event: `payment_split`
+        ///
+        /// **Topics**: `(Symbol("payment_split"), Address merchant)`
+        /// - First topic: fixed event-name symbol for filtering by event type
+        /// - Second topic: the merchant address for which the split was calculated
+        ///
+        /// **Data**: `(i128 gross_amount, i128 platform_fee_amount, i128 network_fee_amount, i128 merchant_amount)`
+        /// - The calculated fee breakdown for the payment in absolute units
+        env.events().publish(
+            (Symbol::new(&env, "payment_split"), merchant),
             (
                 split.gross_amount,
                 split.platform_fee_amount,
