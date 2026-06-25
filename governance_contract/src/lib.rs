@@ -129,7 +129,8 @@ impl GovernanceContract {
         }
         caller.require_auth();
         env.storage().instance().set(&DataKey::Paused, &false);
-        env.events().publish((symbol_short!("unpause"),), false);
+        env.events()
+            .publish((symbol_short!("unpause"),), (admin, false));
     }
 
     pub fn is_paused(env: Env) -> bool {
