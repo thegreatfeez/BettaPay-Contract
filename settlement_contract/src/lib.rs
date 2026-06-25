@@ -435,6 +435,7 @@ impl SettlementContract {
     }
 }
 
+/// Reads the configured admin address and refreshes the instance TTL so it remains available.
 fn read_admin(env: &Env) -> Address {
     env.storage().instance().extend_ttl(50_000, 100_000);
     env.storage()
@@ -443,6 +444,7 @@ fn read_admin(env: &Env) -> Address {
         .unwrap_or_else(|| panic_with_error!(env, SettlementError::NotInitialized))
 }
 
+/// Returns whether a merchant has been registered and keeps the marker entry warm in storage.
 fn is_merchant_registered_internal(env: &Env, merchant: Address) -> bool {
     let key = DataKey::Merchant(merchant);
     if env.storage().persistent().has(&key) {
@@ -452,6 +454,8 @@ fn is_merchant_registered_internal(env: &Env, merchant: Address) -> bool {
     env.storage().persistent().get(&key).unwrap_or(false)
 }
 
+/// Resolves the effective settlement rule for a merchant by preferring the merchant-specific override,
+/// then falling back to the global default, and finally using the bootstrap fallback.
 fn read_rule_or_default(env: &Env, merchant: Address) -> SettlementRule {
     // Merchant-specific rule wins over any shared configuration.
     if let Some(rule) = env
@@ -473,6 +477,7 @@ fn read_rule_or_default(env: &Env, merchant: Address) -> SettlementRule {
     BOOTSTRAP_DEFAULT_RULE
 }
 
+/// Returns whether the contract is currently paused.
 fn is_paused(env: &Env) -> bool {
     env.storage()
         .instance()
@@ -480,12 +485,14 @@ fn is_paused(env: &Env) -> bool {
         .unwrap_or(false)
 }
 
+/// Ensures the contract is not paused before mutating state or performing privileged actions.
 fn assert_not_paused(env: &Env) {
     if is_paused(env) {
         panic_with_error!(env, SettlementError::Paused);
     }
 }
 
+/// Computes the platform, network, and merchant fee amounts for an amount using ceil-based rounding.
 fn calculate_split(amount: i128, rule: &SettlementRule) -> FeeSplit {
     // Fees are rounded up so the platform and network never under-collect.
     let platform_fee_amount =
