@@ -33,12 +33,19 @@ enum DataKey {
 #[derive(Copy, Clone, Eq, PartialEq)]
 #[repr(u32)]
 pub enum GovernanceError {
+    /// The contract has already been initialized.
     AlreadyInitialized = 1,
+    /// The contract has not been initialized yet.
     NotInitialized = 2,
+    /// The caller is not authorized to perform this action.
     Unauthorized = 3,
+    /// The provided fee basis points are invalid or exceed the maximum limit.
     InvalidFeeBps = 4,
+    /// The anchor for the specified asset was not found.
     AnchorMissing = 5,
+    /// The contract is currently paused and the operation is not allowed.
     Paused = 6,
+    /// The provided admin address is invalid (e.g., zero address or same as current admin).
     InvalidAdmin = 7,
 }
 
