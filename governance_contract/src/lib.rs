@@ -182,8 +182,8 @@ impl GovernanceContract {
             .persistent()
             .extend_ttl(&key, FEE_TTL_THRESHOLD, FEE_TTL_BUMP);
         env.events().publish(
-            (symbol_short!("fee_cfg"),),
-            (config.platform_fee_bps, config.network_fee_bps),
+            (Symbol::new(&env, "fee_config_updated"),),
+            (admin, config),
         );
     }
 
