@@ -155,7 +155,6 @@ impl GovernanceContract {
     }
 
     pub fn update_system_param(env: Env, caller: Address, key: Symbol, value: i128) {
-        assert_not_paused(&env);
         let admin = read_admin(&env);
         if caller != admin {
             panic_with_error!(&env, GovernanceError::Unauthorized);
@@ -193,7 +192,6 @@ impl GovernanceContract {
     }
 
     pub fn set_fee_config(env: Env, caller: Address, config: FeeConfig) {
-        assert_not_paused(&env);
         let admin = read_admin(&env);
         if caller != admin {
             panic_with_error!(&env, GovernanceError::Unauthorized);
@@ -224,7 +222,6 @@ impl GovernanceContract {
     }
 
     pub fn upsert_anchor(env: Env, caller: Address, asset: Address, anchor: Address) {
-        assert_not_paused(&env);
         let admin = read_admin(&env);
         if caller != admin {
             panic_with_error!(&env, GovernanceError::Unauthorized);
@@ -238,7 +235,6 @@ impl GovernanceContract {
     }
 
     pub fn remove_anchor(env: Env, caller: Address, asset: Address) {
-        assert_not_paused(&env);
         let admin = read_admin(&env);
         if caller != admin {
             panic_with_error!(&env, GovernanceError::Unauthorized);
@@ -557,5 +553,36 @@ mod tests {
         let payload = AdminTransferred::from_val(&env, &data);
         assert_eq!(payload.old_admin, admin);
         assert_eq!(payload.new_admin, new_admin);
+    }
+    
+    #[test]
+    fn admin_functions_work_while_paused() {
+        let (env, client, admin) = setup();
+        client.pause(&admin);
+        assert!(client.is_paused());
+
+        // None of these should panic while paused - the admin must be able
+        // to resolve issues during a pause, not be locked out of it.
+        let key = Symbol::new(&env, "max_settle");
+        client.update_system_param(&admin, &key, &1440);
+        assert_eq!(client.get_system_param(&key), Some(1440));
+
+        let cfg = FeeConfig {
+            platform_fee_bps: 120,
+            network_fee_bps: 35,
+        };
+        client.set_fee_config(&admin, &cfg);
+        assert_eq!(client.get_fee_config().unwrap().platform_fee_bps, 120);
+
+        let asset = Address::generate(&env);
+        let anchor = Address::generate(&env);
+        client.upsert_anchor(&admin, &asset, &anchor);
+        assert_eq!(client.get_anchor(&asset), Some(anchor));
+
+        client.remove_anchor(&admin, &asset);
+        assert_eq!(client.get_anchor(&asset), None);
+
+        // Still paused throughout - none of the above silently unpaused it.
+        assert!(client.is_paused());
     }
 }
