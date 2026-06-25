@@ -199,9 +199,13 @@ impl GovernanceContract {
             panic_with_error!(&env, GovernanceError::Unauthorized);
         }
         caller.require_auth();
+        let key = DataKey::Anchor(asset.clone());
         env.storage()
             .persistent()
-            .set(&DataKey::Anchor(asset.clone()), &anchor.clone());
+            .set(&key, &anchor.clone());
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, 50_000, 100_000);
         env.events()
             .publish((Symbol::new(&env, "anchor_upserted"), asset), anchor);
     }
