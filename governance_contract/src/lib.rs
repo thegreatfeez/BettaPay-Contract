@@ -1,4 +1,91 @@
-﻿#![no_std]
+//! # BettaPay Governance Contract
+//!
+//! This contract is the single source of truth for protocol-wide configuration
+//! in the BettaPay network. It controls who may act as administrators, what fee
+//! rates are applied across all settlement flows, which off-chain anchors are
+//! trusted for each asset, and a set of extensible numeric system parameters
+//! that downstream contracts can read on-demand.
+//!
+//! ## Key Concepts
+//!
+//! ### Admin Controls
+//! A single privileged `admin` address owns the contract. The admin is stored
+//! in instance storage and is set once during [`GovernanceContract::init`].
+//! Ownership can be transferred via [`GovernanceContract::transfer_admin`] to
+//! any non-zero, non-self address. All mutating entry-points check
+//! `caller == admin` before calling `caller.require_auth()`.
+//!
+//! ### Contract Upgrade
+//! [`GovernanceContract::upgrade`] replaces the running Wasm executable without
+//! touching storage. The caller must be the admin. After an upgrade, the new
+//! code takes over immediately; if a storage-schema migration is needed, a
+//! separate migration function should be invoked in the same transaction.
+//!
+//! ### Pause / Unpause
+//! The admin can halt all mutating governance operations by calling
+//! [`GovernanceContract::pause`]. This sets a boolean flag in instance storage
+//! and emits a `pause` event. All entry-points that write state call the
+//! internal `assert_not_paused` guard. The contract is re-enabled with
+//! [`GovernanceContract::unpause`], which emits an `unpause` event.
+//!
+//! ### Fee Configuration
+//! [`GovernanceContract::set_fee_config`] stores a [`FeeConfig`] struct that
+//! expresses platform and network fees in basis points (bps, 1 bps = 0.01 %).
+//! Both values must independently satisfy:
+//!
+//! - `MIN_FEE_BPS` (5 bps, 0.05 %) ≤ value ≤ `MAX_FEE_BPS` (5 000 bps, 50 %)
+//! - `platform_fee_bps + network_fee_bps` ≤ 10 000 bps (100 %)
+//!
+//! Violating any constraint panics with [`GovernanceError::InvalidFeeBps`].
+//! The current config is readable via [`GovernanceContract::get_fee_config`].
+//! The entry emits a `fee_config_updated` event on every successful write.
+//!
+//! ### Anchor Registry
+//! Each supported asset can nominate a trusted off-chain anchor address via
+//! [`GovernanceContract::upsert_anchor`]. The anchor address is stored keyed by
+//! the asset [`Address`][soroban_sdk::Address] in persistent storage.
+//! [`GovernanceContract::remove_anchor`] deletes the entry; attempting to
+//! remove an asset that has no registered anchor panics with
+//! [`GovernanceError::AnchorMissing`]. Both operations emit events
+//! (`anchor_upserted` / `anchor_removed`) for off-chain indexers.
+//! TTL of the anchor entry is extended on every read via
+//! [`GovernanceContract::get_anchor`].
+//!
+//! ### System Parameters
+//! [`GovernanceContract::update_system_param`] stores an arbitrary `i128`
+//! value under a caller-supplied [`Symbol`][soroban_sdk::Symbol] key. This
+//! gives the admin a flexible mechanism to propagate numeric knobs (e.g.,
+//! maximum settlement delay, minimum collateral ratio) to other contracts
+//! without upgrading the governance contract itself. Parameters are read via
+//! [`GovernanceContract::get_system_param`], which also refreshes the
+//! persistent-entry TTL.
+//!
+//! ## Error Codes
+//!
+//! | Code | Variant | Meaning |
+//! |------|---------|---------|
+//! | 1 | `AlreadyInitialized` | `init` called more than once |
+//! | 2 | `NotInitialized` | Admin not yet set |
+//! | 3 | `Unauthorized` | Caller is not the admin |
+//! | 4 | `InvalidFeeBps` | Fee value out of range or combined sum > 10 000 bps |
+//! | 5 | `AnchorMissing` | Tried to remove an unregistered anchor |
+//! | 6 | `Paused` | Contract is paused |
+//! | 7 | `InvalidAdmin` | Transfer target is zero-address or current admin |
+//!
+//! ## Emitted Events
+//!
+//! | Event symbol | Trigger |
+//! |---|---|
+//! | `contract_upgraded` | Wasm upgrade succeeded |
+//! | `admin` | Admin transfer completed |
+//! | `pause` | Contract paused |
+//! | `unpause` | Contract unpaused |
+//! | `sys_param` | System parameter updated |
+//! | `fee_config_updated` | Fee configuration changed |
+//! | `anchor_upserted` | Anchor created or replaced for an asset |
+//! | `anchor_removed` | Anchor removed for an asset |
+
+#![no_std]
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short, Address,
