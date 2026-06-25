@@ -505,7 +505,7 @@ fn calculate_split(amount: i128, rule: &SettlementRule) -> FeeSplit {
 mod tests {
     use super::*;
     use soroban_sdk::testutils::{Address as _, Events, MockAuth, MockAuthInvoke};
-    use soroban_sdk::FromVal;
+    use soroban_sdk::{FromVal, IntoVal};
 
     fn setup() -> (Env, SettlementContractClient<'static>, Address, Address) {
         let env = Env::default();
@@ -522,7 +522,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn rejects_double_initialization() {
-        let (env, client, admin) = setup();
+        let (env, client, admin, _) = setup();
         client.init(&admin);
         let _ = env;
     }
@@ -1419,13 +1419,136 @@ mod tests {
         env.mock_auths(&[MockAuth {
             address: &non_admin,
             invoke: &MockAuthInvoke {
-                contract_id: &contract_id,
-                function_name: "set_settlement_rule",
-                args: (merchant.clone(), rule.clone()).into_val(&env),
+                contract: &contract_id,
+                fn_name: "set_settlement_rule",
+                args: soroban_sdk::vec![&env, merchant.clone().into_val(&env), rule.clone().into_val(&env)],
                 sub_invokes: &[],
             },
         }]);
 
         client.set_settlement_rule(&merchant, &rule);
+    }
+
+    #[test]
+    fn verify_payment_storage_events() {
+        let (env, client, _admin, merchant) = setup();
+        client.register_merchant(&merchant);
+
+        let rule = SettlementRule {
+            platform_fee_bps: 250,
+            network_fee_bps: 50,
+            settlement_delay_ledger: 0,
+            auto_settle: false,
+        };
+        client.set_settlement_rule(&merchant, &rule);
+
+        let reference = BytesN::from_array(&env, &[77; 32]);
+        let before = env.events().all().len();
+        client.store_payment_reference(&merchant, &reference, &20_000);
+
+        let events = env.events().all();
+        assert_eq!(
+            events.len(),
+            before + 2,
+            "exactly two events should be emitted by store_payment_reference"
+        );
+
+        // Event 1: payment_stored
+        let event1 = events.get(before).unwrap();
+        let (_contract_id, topics1, data1) = event1;
+        assert_eq!(topics1.len(), 2);
+        assert_eq!(
+            Symbol::from_val(&env, &topics1.get(0).unwrap()),
+            Symbol::new(&env, "payment_stored")
+        );
+        assert_eq!(Address::from_val(&env, &topics1.get(1).unwrap()), merchant);
+
+        let (ref1, record): (BytesN<32>, PaymentRecord) = FromVal::from_val(&env, &data1);
+        assert_eq!(ref1, reference);
+        assert_eq!(record.merchant, merchant);
+        assert_eq!(record.amount, 20_000);
+        assert_eq!(record.platform_fee_amount, 500);
+        assert_eq!(record.network_fee_amount, 100);
+        assert_eq!(record.merchant_amount, 19_400);
+        assert_eq!(record.platform_fee_bps, 250);
+        assert_eq!(record.network_fee_bps, 50);
+
+        // Event 2: payment_split
+        let event2 = events.get(before + 1).unwrap();
+        let (_contract_id, topics2, data2) = event2;
+        assert_eq!(topics2.len(), 2);
+        assert_eq!(
+            Symbol::from_val(&env, &topics2.get(0).unwrap()),
+            Symbol::new(&env, "payment_split")
+        );
+        assert_eq!(Address::from_val(&env, &topics2.get(1).unwrap()), merchant);
+
+        let (gross, platform, network, merch): (i128, i128, i128, i128) =
+            FromVal::from_val(&env, &data2);
+        assert_eq!(gross, 20_000);
+        assert_eq!(platform, 500);
+        assert_eq!(network, 100);
+        assert_eq!(merch, 19_400);
+    }
+
+    #[test]
+    #[should_panic]
+    fn store_payment_reference_requires_merchant_auth() {
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let merchant = Address::generate(&env);
+        let contract_id = env.register_contract(None, SettlementContract);
+        let client = SettlementContractClient::new(&env, &contract_id);
+
+        // Authorize admin for init
+        let init_invoke = MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "init",
+            args: soroban_sdk::vec![&env, admin.to_val()],
+            sub_invokes: &[],
+        };
+        let init_auth = MockAuth {
+            address: &admin,
+            invoke: &init_invoke,
+        };
+        env.set_auths(&[(&init_auth).into()]);
+        client.init(&admin);
+
+        // Authorize admin for register_merchant
+        let reg_invoke = MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "register_merchant",
+            args: soroban_sdk::vec![&env, merchant.to_val()],
+            sub_invokes: &[],
+        };
+        let reg_auth = MockAuth {
+            address: &admin,
+            invoke: &reg_invoke,
+        };
+        env.set_auths(&[(&reg_auth).into()]);
+        client.register_merchant(&merchant);
+
+        // Do NOT authorize the merchant for store_payment_reference — should panic.
+        let reference = BytesN::from_array(&env, &[15; 32]);
+        client.store_payment_reference(&merchant, &reference, &10_000);
+    }
+
+    /// Verify that `set_settlement_rule` rejects fee combinations whose
+    /// `platform_fee_bps + network_fee_bps` sum exceeds 10,000 bps with
+    /// the specific `InvalidFeeBps` contract error (#6).
+    #[test]
+    #[should_panic(expected = "Error(Contract, #6)")]
+    fn assert_fee_sum_above_10000_bps_panics_with_invalid_fee_bps() {
+        let (_env, client, _admin, merchant) = setup();
+        client.register_merchant(&merchant);
+
+        // 6_000 + 5_000 = 11_000 which is 1_000 bps over the 10_000 cap.
+        let bad_rule = SettlementRule {
+            platform_fee_bps: 6_000,
+            network_fee_bps: 5_000,
+            settlement_delay_ledger: 0,
+            auto_settle: false,
+        };
+        client.set_settlement_rule(&merchant, &bad_rule);
     }
 }
