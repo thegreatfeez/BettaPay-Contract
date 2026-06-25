@@ -27,7 +27,15 @@ BettaPay-Contract/
 | Governance  | `CDPFWUTIXF5BC6BKNDLSQOZSDQCXAJNZFCZWHBE2RRHANRN25T3ILPZ7` |
 | Admin       | `GCCHHKNI7GRA5QWC7RCTT3OHO7SKAUMKQA6IBWEQEO2SXI3GF376UHDD` |
 
-Network: `Test SDF Network ; September 2015`
+### Network Configuration
+
+| Parameter         | Value                                      |
+|------------------|--------------------------------------------|
+| Network          | Stellar Testnet                            |
+| Passphrase       | `Test SDF Network ; September 2015`        |
+| RPC URL          | `https://soroban-testnet.stellar.org`      |
+| Friendbot URL    | `https://friendbot.stellar.org`            |
+| Explorer         | https://stellar.expert/explorer/testnet    |
 
 ## Quick Start
 
