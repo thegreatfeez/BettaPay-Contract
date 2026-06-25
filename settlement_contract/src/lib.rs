@@ -1362,4 +1362,41 @@ mod tests {
 
         client.set_default_rule(&rule);
     }
+    #[test]
+    #[should_panic]
+    fn set_settlement_rule_requires_admin_auth() {
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let non_admin = Address::generate(&env);
+        let merchant = Address::generate(&env);
+
+        let contract_id = env.register_contract(None, SettlementContract);
+        let client = SettlementContractClient::new(&env, &contract_id);
+
+        env.mock_all_auths();
+        client.init(&admin);
+        client.register_merchant(&merchant);
+
+        let rule = SettlementRule {
+            platform_fee_bps: 100,
+            network_fee_bps: 0,
+            settlement_delay_ledger: 0,
+            auto_settle: false,
+        };
+
+        // Switch to explicit mock_auths to test authorization failure.
+        // We only provide authorization for the non_admin, but the contract
+        // requires authorization from the admin address.
+        env.mock_auths(&[MockAuth {
+            address: &non_admin,
+            invoke: &MockAuthInvoke {
+                contract_id: &contract_id,
+                function_name: "set_settlement_rule",
+                args: (merchant.clone(), rule.clone()).into_val(&env),
+                sub_invokes: &[],
+            },
+        }]);
+
+        client.set_settlement_rule(&merchant, &rule);
+    }
 }
