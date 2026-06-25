@@ -69,19 +69,43 @@ enum DataKey {
 #[derive(Copy, Clone, Eq, PartialEq)]
 #[repr(u32)]
 pub enum SettlementError {
+    /// `init()` has already been called. Only one initialization is permitted.
     AlreadyInitialized = 1,
+    /// `init()` has not been called. All admin-guarded functions require prior initialization.
     NotInitialized = 2,
+    /// The caller does not match the stored admin address.
     Unauthorized = 3,
+    /// `register_merchant` was called for an address that is already registered.
     MerchantExists = 4,
+    /// The target merchant address is not registered. Raised by
+    /// `set_settlement_rule`, `store_payment_reference`, `calculate_fee_split`,
+    /// and `unregister_merchant` when the merchant is missing.
     MerchantMissing = 5,
+    /// The fee BPS values exceed 10 000 (`BPS_DENOMINATOR`) or their sum
+    /// exceeds 10 000. Raised by `set_settlement_rule` and `set_default_rule`.
     InvalidFeeBps = 6,
+    /// The payment amount is below `MIN_PAYMENT_AMOUNT` (100) or is ≤ 0
+    /// in `calculate_fee_split`.
     InvalidAmount = 7,
+    /// `store_payment_reference` was called with a 32‑byte reference that
+    /// already exists in storage.
     DuplicatePaymentReference = 8,
+    /// The contract is paused. Most state‑mutating operations are blocked.
     Paused = 9,
+    /// `clear_settlement_rule` was called for a merchant that has no
+    /// merchant‑specific rule stored.
     RuleNotSet = 10,
+    /// The supplied address is the zero‑address or an empty string.
+    /// Raised by `register_merchant` and `transfer_admin`.
     InvalidAddress = 11,
+    /// `store_payment_reference` was called with an all‑zero 32‑byte
+    /// reference, which is reserved.
     InvalidPaymentReference = 12,
+    /// `settlement_delay_ledger` exceeds `MAX_SETTLEMENT_DELAY_LEDGER`
+    /// (100 000). Raised by `set_settlement_rule` and `set_default_rule`.
     InvalidSettlementDelay = 13,
+    /// `transfer_admin` was called with the current admin address as the
+    /// new admin. The new admin must be different.
     InvalidAdmin = 14,
 }
 
@@ -90,6 +114,11 @@ pub struct SettlementContract;
 
 #[contractimpl]
 impl SettlementContract {
+    /// Initialize the contract with the given admin address.
+    ///
+    /// # Panics
+    ///
+    /// * [`AlreadyInitialized`](SettlementError::AlreadyInitialized) — if the contract has already been initialized.
     pub fn init(env: Env, admin: Address) {
         if env.storage().instance().has(&DataKey::Admin) {
             panic_with_error!(&env, SettlementError::AlreadyInitialized);
@@ -98,10 +127,27 @@ impl SettlementContract {
         env.storage().instance().set(&DataKey::Admin, &admin);
     }
 
+    /// Return the current admin address.
+    ///
+    /// # Panics
+    ///
+    /// * [`NotInitialized`](SettlementError::NotInitialized) — if the contract has not been initialized yet.
     pub fn get_admin(env: Env) -> Address {
         read_admin(&env)
     }
 
+    /// Transfer the admin role to a new address.
+    ///
+    /// # Panics
+    ///
+    /// * [`NotInitialized`](SettlementError::NotInitialized) — if the contract has not been initialized yet.
+    /// * [`InvalidAddress`](SettlementError::InvalidAddress) — if `new_admin` is the zero address.
+    /// * [`InvalidAdmin`](SettlementError::InvalidAdmin) — if `new_admin` is the same as the current admin.
+    ///
+    /// ## Emitted Event: `admin`
+    ///
+    /// **Topics**: `(Symbol("admin"),)`
+    /// **Data**: `Address new_admin`
     pub fn transfer_admin(env: Env, new_admin: Address) {
         let admin = read_admin(&env);
         admin.require_auth();
@@ -121,6 +167,17 @@ impl SettlementContract {
         env.events().publish((symbol_short!("admin"),), new_admin);
     }
 
+    /// Pause the contract, preventing certain operations.
+    ///
+    /// # Panics
+    ///
+    /// * [`NotInitialized`](SettlementError::NotInitialized) — if the contract has not been initialized yet.
+    /// * [`Unauthorized`](SettlementError::Unauthorized) — if the caller is not the admin.
+    ///
+    /// ## Emitted Event: `pause`
+    ///
+    /// **Topics**: `(Symbol("pause"),)`
+    /// **Data**: `bool true`
     pub fn pause(env: Env) {
         let admin = read_admin(&env);
         admin.require_auth();
@@ -128,6 +185,17 @@ impl SettlementContract {
         env.events().publish((symbol_short!("pause"),), true);
     }
 
+    /// Unpause the contract, re-enabling paused operations.
+    ///
+    /// # Panics
+    ///
+    /// * [`NotInitialized`](SettlementError::NotInitialized) — if the contract has not been initialized yet.
+    /// * [`Unauthorized`](SettlementError::Unauthorized) — if the caller is not the admin.
+    ///
+    /// ## Emitted Event: `unpause`
+    ///
+    /// **Topics**: `(Symbol("unpause"),)`
+    /// **Data**: `bool false`
     pub fn unpause(env: Env) {
         let admin = read_admin(&env);
         admin.require_auth();
@@ -135,6 +203,7 @@ impl SettlementContract {
         env.events().publish((symbol_short!("unpause"),), false);
     }
 
+    /// Returns `true` if the contract is currently paused, `false` otherwise.
     pub fn is_paused(env: Env) -> bool {
         is_paused(&env)
     }
@@ -167,12 +236,23 @@ impl SettlementContract {
         }
 
         env.storage().persistent().set(&key, &true);
-        env.events().publish(
-            (Symbol::new(&env, "merchant_registered"), merchant),
-            admin,
-        );
+        env.events()
+            .publish((Symbol::new(&env, "merchant_registered"), merchant), admin);
     }
 
+    /// Remove a merchant from the registry and clear any associated settlement rule.
+    ///
+    /// # Panics
+    ///
+    /// * [`Paused`](SettlementError::Paused) — if the contract is paused.
+    /// * [`NotInitialized`](SettlementError::NotInitialized) — if the contract has not been initialized yet.
+    /// * [`Unauthorized`](SettlementError::Unauthorized) — if the caller is not the admin.
+    /// * [`MerchantMissing`](SettlementError::MerchantMissing) — if the merchant is not registered.
+    ///
+    /// ## Emitted Event: `merchant`
+    ///
+    /// **Topics**: `(Symbol("merchant"), Address merchant)`
+    /// **Data**: `bool false`
     pub fn unregister_merchant(env: Env, merchant: Address) {
         assert_not_paused(&env);
         let admin = read_admin(&env);
@@ -309,10 +389,30 @@ impl SettlementContract {
         );
     }
 
+    /// Returns the global default settlement rule, if one has been set.
     pub fn get_default_rule(env: Env) -> Option<SettlementRule> {
         env.storage().persistent().get(&DataKey::DefaultRule)
     }
 
+    /// Store a payment reference for a merchant and calculate the fee split.
+    ///
+    /// # Panics
+    ///
+    /// * [`Paused`](SettlementError::Paused) — if the contract is paused.
+    /// * [`MerchantMissing`](SettlementError::MerchantMissing) — if the merchant is not registered.
+    /// * [`InvalidPaymentReference`](SettlementError::InvalidPaymentReference) — if `reference` is all zeros.
+    /// * [`InvalidAmount`](SettlementError::InvalidAmount) — if `amount` is below the minimum.
+    /// * [`DuplicatePaymentReference`](SettlementError::DuplicatePaymentReference) — if the reference already exists.
+    ///
+    /// ## Emitted Event: `payment_stored`
+    ///
+    /// **Topics**: `(Symbol("payment_stored"), Address merchant)`
+    /// **Data**: `(BytesN<32> reference, PaymentRecord record)`
+    ///
+    /// ## Emitted Event: `payment_split`
+    ///
+    /// **Topics**: `(Symbol("payment_split"), Address merchant)`
+    /// **Data**: `(i128 gross, i128 platform_fee, i128 network_fee, i128 merchant_amount)`
     pub fn store_payment_reference(
         env: Env,
         merchant: Address,
@@ -353,32 +453,17 @@ impl SettlementContract {
         };
 
         env.storage().persistent().set(&payment_key, &record);
-        env.storage()
-            .persistent()
-            .extend_ttl(&payment_key, PAYMENT_TTL_THRESHOLD, PAYMENT_TTL_BUMP);
+        env.storage().persistent().extend_ttl(
+            &payment_key,
+            PAYMENT_TTL_THRESHOLD,
+            PAYMENT_TTL_BUMP,
+        );
 
-        /// ## Emitted Event: `payment_stored`
-        ///
-        /// **Topics**: `(Symbol("payment_stored"), Address merchant)`
-        /// - First topic: fixed event-name symbol for filtering by event type
-        /// - Second topic: the merchant address that stored the payment
-        ///
-        /// **Data**: `(BytesN<32> reference, PaymentRecord record)`
-        /// - `reference`: the unique payment reference identifier
-        /// - `record`: the full payment record including amounts, fees, and settlement info
         env.events().publish(
             (Symbol::new(&env, "payment_stored"), merchant.clone()),
             (reference.clone(), record),
         );
 
-        /// ## Emitted Event: `payment_split`
-        ///
-        /// **Topics**: `(Symbol("payment_split"), Address merchant)`
-        /// - First topic: fixed event-name symbol for filtering by event type
-        /// - Second topic: the merchant address for which the split was calculated
-        ///
-        /// **Data**: `(i128 gross_amount, i128 platform_fee_amount, i128 network_fee_amount, i128 merchant_amount)`
-        /// - The calculated fee breakdown for the payment in absolute units
         env.events().publish(
             (Symbol::new(&env, "payment_split"), merchant),
             (
@@ -392,14 +477,22 @@ impl SettlementContract {
         split
     }
 
+    /// Returns `true` if the given address is a registered merchant, `false` otherwise.
     pub fn is_merchant_registered(env: Env, merchant: Address) -> bool {
         is_merchant_registered_internal(&env, merchant)
     }
 
+    /// Returns the merchant-specific settlement rule, if one has been set.
     pub fn get_settlement_rule(env: Env, merchant: Address) -> Option<SettlementRule> {
         env.storage().persistent().get(&DataKey::Rule(merchant))
     }
 
+    /// Calculate the fee split for a given merchant and amount without storing a payment reference.
+    ///
+    /// # Panics
+    ///
+    /// * [`MerchantMissing`](SettlementError::MerchantMissing) — if the merchant is not registered.
+    /// * [`InvalidAmount`](SettlementError::InvalidAmount) — if `amount` is zero or negative.
     pub fn calculate_fee_split(env: Env, merchant: Address, amount: i128) -> FeeSplit {
         if !is_merchant_registered_internal(&env, merchant.clone()) {
             panic_with_error!(&env, SettlementError::MerchantMissing);
@@ -411,6 +504,7 @@ impl SettlementContract {
         calculate_split(amount, &rule)
     }
 
+    /// Retrieve a payment record by its reference, extending the storage TTL if found.
     pub fn get_payment_reference(env: Env, reference: BytesN<32>) -> Option<PaymentRecord> {
         let key = DataKey::Payment(reference);
         let record: Option<PaymentRecord> = env.storage().persistent().get(&key);
@@ -422,6 +516,9 @@ impl SettlementContract {
         record
     }
 
+    /// Retrieve multiple payment records by a vector of references.
+    ///
+    /// Missing references are silently skipped.
     pub fn get_payments(env: Env, references: Vec<BytesN<32>>) -> Vec<PaymentRecord> {
         let mut payments = Vec::new(&env);
 
@@ -435,6 +532,7 @@ impl SettlementContract {
     }
 }
 
+/// Reads the configured admin address and refreshes the instance TTL so it remains available.
 fn read_admin(env: &Env) -> Address {
     env.storage().instance().extend_ttl(50_000, 100_000);
     env.storage()
@@ -443,6 +541,7 @@ fn read_admin(env: &Env) -> Address {
         .unwrap_or_else(|| panic_with_error!(env, SettlementError::NotInitialized))
 }
 
+/// Returns whether a merchant has been registered and keeps the marker entry warm in storage.
 fn is_merchant_registered_internal(env: &Env, merchant: Address) -> bool {
     let key = DataKey::Merchant(merchant);
     if env.storage().persistent().has(&key) {
@@ -452,6 +551,8 @@ fn is_merchant_registered_internal(env: &Env, merchant: Address) -> bool {
     env.storage().persistent().get(&key).unwrap_or(false)
 }
 
+/// Resolves the effective settlement rule for a merchant by preferring the merchant-specific override,
+/// then falling back to the global default, and finally using the bootstrap fallback.
 fn read_rule_or_default(env: &Env, merchant: Address) -> SettlementRule {
     // Merchant-specific rule wins over any shared configuration.
     if let Some(rule) = env
@@ -473,6 +574,7 @@ fn read_rule_or_default(env: &Env, merchant: Address) -> SettlementRule {
     BOOTSTRAP_DEFAULT_RULE
 }
 
+/// Returns whether the contract is currently paused.
 fn is_paused(env: &Env) -> bool {
     env.storage()
         .instance()
@@ -480,18 +582,28 @@ fn is_paused(env: &Env) -> bool {
         .unwrap_or(false)
 }
 
+/// Ensures the contract is not paused before mutating state or performing privileged actions.
 fn assert_not_paused(env: &Env) {
     if is_paused(env) {
         panic_with_error!(env, SettlementError::Paused);
     }
 }
 
+/// Computes the platform, network, and merchant fee amounts for an amount using ceil-based rounding.
 fn calculate_split(amount: i128, rule: &SettlementRule) -> FeeSplit {
-    // Fees are rounded up so the platform and network never under-collect.
+    // Integer arithmetic is used instead of floats to ensure deterministic, reproducible smart contract execution.
+    // Standard integer division (`/`) truncates fractions toward zero, causing precision loss and under-collecting fees.
+    // To prevent fee under-collection, ceiling division is simulated by adding `BPS_DENOMINATOR - 1` to the numerator.
+    // Edge case: For small amounts, ceil rounding can force fees to 1 unit even when the basis points represent a tiny fraction.
     let platform_fee_amount =
         (amount * (rule.platform_fee_bps as i128) + BPS_DENOMINATOR - 1) / BPS_DENOMINATOR;
     let network_fee_amount =
         (amount * (rule.network_fee_bps as i128) + BPS_DENOMINATOR - 1) / BPS_DENOMINATOR;
+
+    // The merchant amount is calculated as the subtraction remainder of the gross amount minus all rounded-up fees.
+    // This ensures the sum of the split amounts (platform fee + network fee + merchant share) always equals the gross amount.
+    // Consequence: The merchant absorbs all rounding dust. For very small gross amounts with high/extreme fee percentages,
+    // the sum of rounded-up fees can exceed the gross amount, resulting in a negative merchant payout.
     let merchant_amount = amount - platform_fee_amount - network_fee_amount;
     FeeSplit {
         gross_amount: amount,
@@ -505,7 +617,7 @@ fn calculate_split(amount: i128, rule: &SettlementRule) -> FeeSplit {
 mod tests {
     use super::*;
     use soroban_sdk::testutils::{Address as _, Events, MockAuth, MockAuthInvoke};
-    use soroban_sdk::FromVal;
+    use soroban_sdk::{FromVal, IntoVal};
 
     fn setup() -> (Env, SettlementContractClient<'static>, Address, Address) {
         let env = Env::default();
@@ -520,12 +632,41 @@ mod tests {
     }
 
     #[test]
+    #[should_panic]
+    fn rejects_double_initialization() {
+        let (env, client, admin, _) = setup();
+        client.init(&admin);
+        let _ = env;
+    }
+
+    #[test]
     fn registers_merchant_and_persists_flag() {
         let (env, client, _admin, merchant) = setup();
         let before = env.events().all().len();
         client.register_merchant(&merchant);
         assert!(client.is_merchant_registered(&merchant));
         assert!(env.events().all().len() > before);
+    }
+
+    #[test]
+    fn emits_event_on_registration() {
+        let (env, client, admin, merchant) = setup();
+
+        client.register_merchant(&merchant);
+
+        let events = env.events().all();
+        let event = events.last().unwrap();
+        let (_contract_id, topics, data) = event;
+
+        // Topic 0: Event Name symbol
+        assert_eq!(
+            Symbol::from_val(&env, &topics.get(0).unwrap()),
+            Symbol::new(&env, "merchant_registered")
+        );
+        // Topic 1: Merchant Address
+        assert_eq!(Address::from_val(&env, &topics.get(1).unwrap()), merchant);
+        // Data: Admin Address (the caller)
+        assert_eq!(Address::from_val(&env, &data), admin);
     }
 
     #[test]
@@ -810,7 +951,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "Error(Contract, #8)")]
     fn rejects_duplicate_payment_reference() {
         let (env, client, _admin, merchant) = setup();
         client.register_merchant(&merchant);
@@ -1309,9 +1450,7 @@ mod tests {
         };
 
         client.set_default_rule(&rule);
-        let stored = client
-            .get_default_rule()
-            .expect("expected default rule");
+        let stored = client.get_default_rule().expect("expected default rule");
         assert_eq!(stored.settlement_delay_ledger, 50_000);
     }
 
@@ -1327,9 +1466,7 @@ mod tests {
         };
 
         client.set_default_rule(&rule);
-        let stored = client
-            .get_default_rule()
-            .expect("expected default rule");
+        let stored = client.get_default_rule().expect("expected default rule");
         assert_eq!(stored.settlement_delay_ledger, 100_000);
     }
 
@@ -1362,11 +1499,20 @@ mod tests {
 
         client.set_default_rule(&rule);
     }
-
     #[test]
-    #[should_panic(expected = "Error(Contract, #5)")]
-    fn set_settlement_rule_rejects_unregistered_merchant() {
-        let (_env, client, _admin, merchant) = setup();
+    #[should_panic]
+    fn set_settlement_rule_requires_admin_auth() {
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let non_admin = Address::generate(&env);
+        let merchant = Address::generate(&env);
+
+        let contract_id = env.register_contract(None, SettlementContract);
+        let client = SettlementContractClient::new(&env, &contract_id);
+
+        env.mock_all_auths();
+        client.init(&admin);
+        client.register_merchant(&merchant);
 
         let rule = SettlementRule {
             platform_fee_bps: 100,
@@ -1374,30 +1520,143 @@ mod tests {
             settlement_delay_ledger: 0,
             auto_settle: false,
         };
+
+        // Switch to explicit mock_auths to test authorization failure.
+        // We only provide authorization for the non_admin, but the contract
+        // requires authorization from the admin address.
+        env.mock_auths(&[MockAuth {
+            address: &non_admin,
+            invoke: &MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "set_settlement_rule",
+                args: soroban_sdk::vec![&env, merchant.clone().into_val(&env), rule.clone().into_val(&env)],
+                sub_invokes: &[],
+            },
+        }]);
+
         client.set_settlement_rule(&merchant, &rule);
     }
 
     #[test]
+    fn verify_payment_storage_events() {
+        let (env, client, _admin, merchant) = setup();
+        client.register_merchant(&merchant);
+
+        let rule = SettlementRule {
+            platform_fee_bps: 250,
+            network_fee_bps: 50,
+            settlement_delay_ledger: 0,
+            auto_settle: false,
+        };
+        client.set_settlement_rule(&merchant, &rule);
+
+        let reference = BytesN::from_array(&env, &[77; 32]);
+        let before = env.events().all().len();
+        client.store_payment_reference(&merchant, &reference, &20_000);
+
+        let events = env.events().all();
+        assert_eq!(
+            events.len(),
+            before + 2,
+            "exactly two events should be emitted by store_payment_reference"
+        );
+
+        // Event 1: payment_stored
+        let event1 = events.get(before).unwrap();
+        let (_contract_id, topics1, data1) = event1;
+        assert_eq!(topics1.len(), 2);
+        assert_eq!(
+            Symbol::from_val(&env, &topics1.get(0).unwrap()),
+            Symbol::new(&env, "payment_stored")
+        );
+        assert_eq!(Address::from_val(&env, &topics1.get(1).unwrap()), merchant);
+
+        let (ref1, record): (BytesN<32>, PaymentRecord) = FromVal::from_val(&env, &data1);
+        assert_eq!(ref1, reference);
+        assert_eq!(record.merchant, merchant);
+        assert_eq!(record.amount, 20_000);
+        assert_eq!(record.platform_fee_amount, 500);
+        assert_eq!(record.network_fee_amount, 100);
+        assert_eq!(record.merchant_amount, 19_400);
+        assert_eq!(record.platform_fee_bps, 250);
+        assert_eq!(record.network_fee_bps, 50);
+
+        // Event 2: payment_split
+        let event2 = events.get(before + 1).unwrap();
+        let (_contract_id, topics2, data2) = event2;
+        assert_eq!(topics2.len(), 2);
+        assert_eq!(
+            Symbol::from_val(&env, &topics2.get(0).unwrap()),
+            Symbol::new(&env, "payment_split")
+        );
+        assert_eq!(Address::from_val(&env, &topics2.get(1).unwrap()), merchant);
+
+        let (gross, platform, network, merch): (i128, i128, i128, i128) =
+            FromVal::from_val(&env, &data2);
+        assert_eq!(gross, 20_000);
+        assert_eq!(platform, 500);
+        assert_eq!(network, 100);
+        assert_eq!(merch, 19_400);
+    }
+
+    #[test]
     #[should_panic]
-    fn unpause_fails_for_non_admin() {
+    fn store_payment_reference_requires_merchant_auth() {
         let env = Env::default();
         let admin = Address::generate(&env);
-        let contract_id: Address = env.register_contract(None, SettlementContract);
+        let merchant = Address::generate(&env);
+        let contract_id = env.register_contract(None, SettlementContract);
         let client = SettlementContractClient::new(&env, &contract_id);
 
-        let invoke = MockAuthInvoke {
+        // Authorize admin for init
+        let init_invoke = MockAuthInvoke {
             contract: &contract_id,
             fn_name: "init",
             args: soroban_sdk::vec![&env, admin.to_val()],
             sub_invokes: &[],
         };
-        let auth = MockAuth {
+        let init_auth = MockAuth {
             address: &admin,
-            invoke: &invoke,
+            invoke: &init_invoke,
         };
-        env.set_auths(&[(&auth).into()]);
+        env.set_auths(&[(&init_auth).into()]);
         client.init(&admin);
 
-        client.unpause();
+        // Authorize admin for register_merchant
+        let reg_invoke = MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "register_merchant",
+            args: soroban_sdk::vec![&env, merchant.to_val()],
+            sub_invokes: &[],
+        };
+        let reg_auth = MockAuth {
+            address: &admin,
+            invoke: &reg_invoke,
+        };
+        env.set_auths(&[(&reg_auth).into()]);
+        client.register_merchant(&merchant);
+
+        // Do NOT authorize the merchant for store_payment_reference — should panic.
+        let reference = BytesN::from_array(&env, &[15; 32]);
+        client.store_payment_reference(&merchant, &reference, &10_000);
+    }
+
+    /// Verify that `set_settlement_rule` rejects fee combinations whose
+    /// `platform_fee_bps + network_fee_bps` sum exceeds 10,000 bps with
+    /// the specific `InvalidFeeBps` contract error (#6).
+    #[test]
+    #[should_panic(expected = "Error(Contract, #6)")]
+    fn assert_fee_sum_above_10000_bps_panics_with_invalid_fee_bps() {
+        let (_env, client, _admin, merchant) = setup();
+        client.register_merchant(&merchant);
+
+        // 6_000 + 5_000 = 11_000 which is 1_000 bps over the 10_000 cap.
+        let bad_rule = SettlementRule {
+            platform_fee_bps: 6_000,
+            network_fee_bps: 5_000,
+            settlement_delay_ledger: 0,
+            auto_settle: false,
+        };
+        client.set_settlement_rule(&merchant, &bad_rule);
     }
 }

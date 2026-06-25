@@ -3,6 +3,7 @@
 Soroban smart contracts for the BettaPay payment infrastructure on Stellar.
 
 
+
 ## Structure
 
 ```
@@ -65,6 +66,31 @@ Handles protocol-level configuration:
 - `remove_anchor(asset)` — remove anchor
 - `get_anchor(asset)` — read anchor for asset
 
+## Architecture Diagram
+
+```mermaid
+flowchart LR
+    subgraph Clients
+        Admin[Admin / Operators]
+        Merchant[Merchant Services]
+        Backend[Backend Services]
+    end
+
+    subgraph Contracts
+        Governance[Governance Contract]
+        Settlement[Settlement Contract]
+    end
+
+    Admin --> Governance
+    Merchant --> Settlement
+    Backend --> Governance
+    Backend --> Settlement
+    Governance -->|Fee config and anchors| Settlement
+    Settlement -->|Payments and settlement events| Backend
+```
+
+This diagram highlights the main interaction pattern: the backend and operators call the contracts directly, while the settlement contract consumes governance configuration and emits settlement-related events back to the application layer.
+
 ## Soroban SDK Version
 
 `soroban-sdk = "21.7.7"`
@@ -72,3 +98,5 @@ Handles protocol-level configuration:
 ## Dependencies
 
 No cross-contract calls. Both contracts are independently deployable and stateless across each other. The backend services call them via Stellar RPC.
+
+i would like to work on this issue

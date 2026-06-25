@@ -40,6 +40,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@cargo-audit
+
+      - name: Run cargo-audit
+        run: cargo audit
+
       - name: Format Check
         run: cargo fmt --all -- --check
 
