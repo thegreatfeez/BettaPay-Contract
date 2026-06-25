@@ -254,7 +254,7 @@ fn assert_not_paused(env: &Env) {
 mod tests {
     use super::*;
     use soroban_sdk::testutils::{Address as _, Events, MockAuth, MockAuthInvoke};
-    use soroban_sdk::{vec, Bytes};
+    use soroban_sdk::{vec, Bytes, FromVal};
 
     fn setup() -> (Env, GovernanceContractClient<'static>, Address) {
         let env = Env::default();
@@ -321,6 +321,33 @@ mod tests {
         assert_eq!(got.platform_fee_bps, 120);
         assert_eq!(got.network_fee_bps, 35);
         assert!(env.events().all().len() > before);
+    }
+
+    #[test]
+    fn fee_config_event_emitted_with_correct_fields() {
+        let (env, client, admin) = setup();
+        let cfg = FeeConfig {
+            platform_fee_bps: 120,
+            network_fee_bps: 35,
+        };
+
+        client.set_fee_config(&admin, &cfg);
+
+        let events = env.events().all();
+        let event = events.last().unwrap();
+
+        let (_contract_id, topics, data) = event;
+
+        assert_eq!(topics.len(), 1);
+        assert_eq!(
+            Symbol::from_val(&env, &topics.get(0).unwrap()),
+            Symbol::new(&env, "fee_config_updated")
+        );
+
+        let (event_admin, event_cfg): (Address, FeeConfig) = FromVal::from_val(&env, &data);
+        assert_eq!(event_admin, admin);
+        assert_eq!(event_cfg.platform_fee_bps, 120);
+        assert_eq!(event_cfg.network_fee_bps, 35);
     }
 
     #[test]
