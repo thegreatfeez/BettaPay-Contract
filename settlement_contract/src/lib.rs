@@ -105,6 +105,15 @@ impl SettlementContract {
     pub fn transfer_admin(env: Env, new_admin: Address) {
         let admin = read_admin(&env);
         admin.require_auth();
+
+        let zero_address_str = soroban_sdk::String::from_str(
+            &env,
+            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+        );
+        if new_admin.to_string().len() == 0 || new_admin.to_string() == zero_address_str {
+            panic_with_error!(&env, SettlementError::InvalidAddress);
+        }
+
         if new_admin == admin {
             panic_with_error!(&env, SettlementError::InvalidAdmin);
         }
@@ -528,6 +537,17 @@ mod tests {
             "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
         ));
         client.register_merchant(&zero_address);
+    }
+
+    #[test]
+    #[should_panic]
+    fn rejects_zero_address_admin_transfer() {
+        let (env, client, _admin, _merchant) = setup();
+        let zero_address = Address::from_string(&soroban_sdk::String::from_str(
+            &env,
+            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+        ));
+        client.transfer_admin(&zero_address);
     }
 
     #[test]
