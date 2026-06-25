@@ -182,10 +182,8 @@ impl GovernanceContract {
         env.storage()
             .persistent()
             .extend_ttl(&key, FEE_TTL_THRESHOLD, FEE_TTL_BUMP);
-        env.events().publish(
-            (Symbol::new(&env, "fee_config_updated"),),
-            (admin, config),
-        );
+        env.events()
+            .publish((Symbol::new(&env, "fee_config_updated"),), (admin, config));
     }
 
     pub fn get_fee_config(env: Env) -> Option<FeeConfig> {

@@ -167,10 +167,8 @@ impl SettlementContract {
         }
 
         env.storage().persistent().set(&key, &true);
-        env.events().publish(
-            (Symbol::new(&env, "merchant_registered"), merchant),
-            admin,
-        );
+        env.events()
+            .publish((Symbol::new(&env, "merchant_registered"), merchant), admin);
     }
 
     pub fn unregister_merchant(env: Env, merchant: Address) {
@@ -353,9 +351,11 @@ impl SettlementContract {
         };
 
         env.storage().persistent().set(&payment_key, &record);
-        env.storage()
-            .persistent()
-            .extend_ttl(&payment_key, PAYMENT_TTL_THRESHOLD, PAYMENT_TTL_BUMP);
+        env.storage().persistent().extend_ttl(
+            &payment_key,
+            PAYMENT_TTL_THRESHOLD,
+            PAYMENT_TTL_BUMP,
+        );
 
         /// ## Emitted Event: `payment_stored`
         ///
@@ -1309,9 +1309,7 @@ mod tests {
         };
 
         client.set_default_rule(&rule);
-        let stored = client
-            .get_default_rule()
-            .expect("expected default rule");
+        let stored = client.get_default_rule().expect("expected default rule");
         assert_eq!(stored.settlement_delay_ledger, 50_000);
     }
 
@@ -1327,9 +1325,7 @@ mod tests {
         };
 
         client.set_default_rule(&rule);
-        let stored = client
-            .get_default_rule()
-            .expect("expected default rule");
+        let stored = client.get_default_rule().expect("expected default rule");
         assert_eq!(stored.settlement_delay_ledger, 100_000);
     }
 
