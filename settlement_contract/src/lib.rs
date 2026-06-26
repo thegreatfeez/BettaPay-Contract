@@ -1,3 +1,37 @@
+//! # BettaPay Settlement Contract
+//!
+//! This module provides the core implementation of the settlement contract for BettaPay.
+//! It is responsible for managing merchant registration, settlement rules, and the payment storage architecture.
+//!
+//! ## Merchant Rules
+//!
+//! The contract maintains a registry of authorized merchants. For each registered merchant,
+//! an admin can configure specific settlement rules defined by the `SettlementRule` struct.
+//! A settlement rule dictates:
+//! - **Platform Fee (BPS)**: The fee collected by the platform.
+//! - **Network Fee (BPS)**: The fee collected by the network.
+//! - **Settlement Delay**: The delay in ledger sequences before a settlement can occur.
+//! - **Auto-settle**: A flag indicating whether auto-settlement is enabled.
+//!
+//! If a merchant lacks a specific rule, the system falls back to an admin-configured global default rule,
+//! and ultimately to a hardcoded bootstrap default rule if necessary.
+//!
+//! ## Payment Storage Architecture
+//!
+//! Payments are tracked and stored using a unique 32-byte reference (`BytesN<32>`).
+//! When `store_payment_reference` is invoked, the contract calculates the exact fee split
+//! (platform fee, network fee, and net merchant amount) based on the merchant's effective settlement rule.
+//!
+//! The resulting data is persisted in a `PaymentRecord`, which encapsulates:
+//! - The calculated amounts and fee BPS.
+//! - The ledger sequence of the transaction.
+//! - Settlement delay and auto-settle configurations.
+//! - The associated merchant address.
+//!
+//! The contract leverages different `DataKey` variants (`Admin`, `Merchant`, `Rule`, `Payment`, etc.)
+//! to securely organize persistent and instance storage, while applying TTL extensions to ensure
+//! active records remain available and do not expire prematurely.
+
 #![no_std]
 
 use soroban_sdk::{
