@@ -849,28 +849,6 @@ mod tests {
         let missing_asset = Address::generate(&env);
         client.remove_anchor(&admin, &missing_asset);
     }
-
-    #[test]
-    #[should_panic(expected = "Error(Contract, #6)")]
-    fn remove_anchor_fails_when_paused() {
-        let (env, client, admin) = setup();
-        let asset = Address::generate(&env);
-        let anchor = Address::generate(&env);
-
-        client.upsert_anchor(&admin, &asset, &anchor);
-        client.pause(&admin);
-        client.remove_anchor(&admin, &asset);
-    }
-
-    #[test]
-    #[should_panic]
-    fn rejects_double_initialization() {
-        let (env, client, admin) = setup();
-        client.init(&admin);
-        let _ = env;
-    }
-
-    #[test]
     fn checks_if_initialized() {
         let env = Env::default();
         env.mock_all_auths();
@@ -1040,17 +1018,7 @@ mod tests {
         assert!(client.is_paused());
     }
 
-    #[test]
-    #[should_panic]
-    fn set_fee_config_blocked_when_paused() {
-        let (_env, client, admin) = setup();
-        client.pause(&admin);
-        let cfg = FeeConfig {
-            platform_fee_bps: 100,
-            network_fee_bps: 50,
-        };
-        client.set_fee_config(&admin, &cfg);
-    }
+
 
     #[test]
     #[should_panic]

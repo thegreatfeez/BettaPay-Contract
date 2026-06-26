@@ -1659,4 +1659,139 @@ mod tests {
         };
         client.set_settlement_rule(&merchant, &bad_rule);
     }
+
+
+    // Issue #76: verify only admin can register merchants
+
+    #[test]
+    #[should_panic]
+    fn register_merchant_requires_admin_auth() {
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let non_admin = Address::generate(&env);
+        let merchant = Address::generate(&env);
+        let contract_id = env.register_contract(None, SettlementContract);
+        let client = SettlementContractClient::new(&env, &contract_id);
+        env.mock_all_auths();
+        client.init(&admin);
+        env.mock_auths(&[MockAuth {
+            address: &non_admin,
+            invoke: &MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "register_merchant",
+                args: soroban_sdk::vec![&env, merchant.clone().into_val(&env)],
+                sub_invokes: &[],
+            },
+        }]);
+        client.register_merchant(&merchant);
+    }
+
+    // Issue #77: verify duplicate merchant registration fails with MerchantExists
+    #[test]
+    #[should_panic]
+    fn duplicate_merchant_registration_fails() {
+        let (_env, client, _admin, merchant) = setup();
+        client.register_merchant(&merchant);
+        client.register_merchant(&merchant);
+    }
+
+    // Issue #90: verify split events are emitted correctly
+    #[test]
+    fn split_events_emitted_on_payment_reference() {
+        let (env, client, _admin, merchant) = setup();
+        client.register_merchant(&merchant);
+        let rule = SettlementRule {
+            platform_fee_bps: 200,
+            network_fee_bps: 50,
+            settlement_delay_ledger: 0,
+            auto_settle: false,
+        };
+        client.set_settlement_rule(&merchant, &rule);
+        let reference = BytesN::from_array(&env, &[42; 32]);
+        let before = env.events().all().len();
+        client.store_payment_reference(&merchant, &reference, &10_000);
+        let events = env.events().all();
+        assert!(events.len() >= before + 2);
+        let found_split = events.iter().skip(before as usize).any(|(_id, topics, _data)| {
+            topics.len() >= 1 &&
+            Symbol::from_val(&env, &topics.get(0).unwrap()) == Symbol::new(&env, "payment_split")
+        });
+        assert!(found_split, "payment_split event not emitted");
+    }
+
+    // Issue #85: verify default fee split falls back to 100 BPS
+    #[test]
+    fn default_fee_split_uses_100_bps() {
+        let (_env, client, _admin, merchant) = setup();
+        client.register_merchant(&merchant);
+        let split = client.calculate_fee_split(&merchant, &10_000);
+        assert_eq!(split.platform_fee_amount, 100); // 100 bps of 10_000
+        assert_eq!(split.network_fee_amount, 0);
+        assert_eq!(split.merchant_amount, 9_900);
+    
+    #[test]
+    #[should_panic]
+    fn register_merchant_requires_admin_auth() {
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let non_admin = Address::generate(&env);
+        let merchant = Address::generate(&env);
+        let contract_id = env.register_contract(None, SettlementContract);
+        let client = SettlementContractClient::new(&env, &contract_id);
+        env.mock_all_auths();
+        client.init(&admin);
+        env.mock_auths(&[MockAuth {
+            address: &non_admin,
+            invoke: &MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "register_merchant",
+                args: soroban_sdk::vec![&env, merchant.clone().into_val(&env)],
+                sub_invokes: &[],
+            },
+        }]);
+        client.register_merchant(&merchant);
+    }
+
+    #[test]
+    #[should_panic]
+    fn duplicate_merchant_registration_fails() {
+        let (_env, client, _admin, merchant) = setup();
+        client.register_merchant(&merchant);
+        client.register_merchant(&merchant);
+    }
+
+    #[test]
+    fn split_events_emitted_on_payment_reference() {
+        let (env, client, _admin, merchant) = setup();
+        client.register_merchant(&merchant);
+        let rule = SettlementRule {
+            platform_fee_bps: 200,
+            network_fee_bps: 50,
+            settlement_delay_ledger: 0,
+            auto_settle: false,
+        };
+        client.set_settlement_rule(&merchant, &rule);
+        let reference = BytesN::from_array(&env, &[42; 32]);
+        let before = env.events().all().len();
+        client.store_payment_reference(&merchant, &reference, &10_000);
+        let events = env.events().all();
+        assert!(events.len() >= before + 2);
+        let found_split = events.iter().skip(before as usize).any(|(_id, topics, _data)| {
+            topics.len() >= 1
+                && Symbol::from_val(&env, &topics.get(0).unwrap())
+                    == Symbol::new(&env, "payment_split")
+        });
+        assert!(found_split, "payment_split event not emitted");
+    }
+
+    #[test]
+    fn default_fee_split_uses_100_bps() {
+        let (_env, client, _admin, merchant) = setup();
+        client.register_merchant(&merchant);
+        let split = client.calculate_fee_split(&merchant, &10_000);
+        assert_eq!(split.platform_fee_amount, 100);
+        assert_eq!(split.network_fee_amount, 0);
+        assert_eq!(split.merchant_amount, 9_900);
+    }
+}
 }
